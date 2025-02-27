@@ -1,63 +1,67 @@
 import { APIGatewayProxyHandlerV2 } from "aws-lambda";
-
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const ddbDocClient = createDDbDocClient();
 
-export const handler: APIGatewayProxyHandlerV2  = async (event, context) => {
+export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
   try {
-    // Print Event
     console.log("[EVENT]", JSON.stringify(event));
-    const parameters  = event?.pathParameters;
-    const movieId = parameters?.movieId ? parseInt(parameters.movieId) : undefined;
 
+    // Extract movieId from path parameters
+    const movieId = event.pathParameters?.movieId;
     if (!movieId) {
       return {
-        statusCode: 404,
+        statusCode: 400,
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ Message: "Missing movie Id" }),
+        body: JSON.stringify({ message: "Missing movieId in path parameters" }),
       };
     }
 
+    const includeCast = event.queryStringParameters?.cast === "true";
+
     const commandOutput = await ddbDocClient.send(
       new GetCommand({
-        TableName: process.env.TABLE_NAME,
-        Key: { id: movieId },
+        TableName: process.env.TABLE_NAME!,
+        Key: { id: parseInt(movieId, 10) },
       })
     );
-    console.log("GetCommand response: ", commandOutput);
+
     if (!commandOutput.Item) {
       return {
         statusCode: 404,
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ Message: "Invalid movie Id" }),
+        body: JSON.stringify({ message: "Movie not found" }),
       };
     }
-    const body = {
-      data: commandOutput.Item,
+
+    const movie = {
+      ...commandOutput.Item,
     };
 
-    // Return Response
+    if (!includeCast && movie.cast) {
+      delete movie.cast;
+    }
+
     return {
       statusCode: 200,
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(movie),
     };
   } catch (error: any) {
-    console.log(JSON.stringify(error));
+    console.error("Error fetching movie:", error);
     return {
       statusCode: 500,
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({ error }),
+      body: JSON.stringify({ error: error.message || "Internal Server Error" }),
     };
   }
 };
